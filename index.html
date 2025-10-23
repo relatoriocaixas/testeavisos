@@ -10,22 +10,19 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 </head>
 <body>
-  <button id="adminAccessBtn" class="admin-access">Admin</button>
-
-  <div id="floatingPanel" class="panel">
-    <div class="panel-header">
-      <div class="title">
-        <div>Avisos Recebedoria</div>
-        <div id="todayDate" class="date"></div>
+  <div class="top-left-bar">
+    <div id="floatingPanel" class="panel">
+      <div class="panel-header">
+        <div class="title">
+          <div>Avisos Recebedoria</div>
+          <div id="todayDate" class="date"></div>
+        </div>
       </div>
-      <div class="controls">
-        <button id="togglePin" title="Fixar/Desfixar">📌</button>
-        <button id="minimize" title="Minimizar">—</button>
+      <div id="content" class="panel-body">
+        <div id="notices"></div>
       </div>
     </div>
-    <div id="content" class="panel-body">
-      <div id="notices"></div>
-    </div>
+    <button id="adminAccessBtn" class="admin-access">Admin</button>
   </div>
 
   <!-- Tela de login admin -->
@@ -63,125 +60,131 @@
     </div>
   </div>
 
-  <script>
-  const ADMINS = ["6266","70029","4144","5354"];
-  const firebaseConfig = {
-    apiKey: "AIzaSyD_QOZr3i5oEq6KkiFiUCQIDjyx3eoesTo",
-    authDomain: "avisosrecebedoria.firebaseapp.com",
-    projectId: "avisosrecebedoria",
-    storageBucket: "avisosrecebedoria.firebasestorage.app",
-    messagingSenderId: "50681073405",
-    appId: "1:50681073405:web:8a65e948de3ee87d6d3894",
-    measurementId: "G-6WVKGQ2730"
-  };
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.firestore();
-  const auth = firebase.auth();
+<script>
+const ADMINS = ["6266","70029","4144","5354"];
+const firebaseConfig = {
+  apiKey: "AIzaSyD_QOZr3i5oEq6KkiFiUCQIDjyx3eoesTo",
+  authDomain: "avisosrecebedoria.firebaseapp.com",
+  projectId: "avisosrecebedoria",
+  storageBucket: "avisosrecebedoria.firebasestorage.app",
+  messagingSenderId: "50681073405",
+  appId: "1:50681073405:web:8a65e948de3ee87d6d3894",
+  measurementId: "G-6WVKGQ2730"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
 
-  const $ = (s)=>document.querySelector(s);
-  $('#todayDate').textContent = new Date().toLocaleDateString('pt-BR');
+const $ = (s)=>document.querySelector(s);
+$('#todayDate').textContent = new Date().toLocaleDateString('pt-BR');
 
-  const adminAccessBtn = $('#adminAccessBtn');
-  const loginOverlay = $('#loginOverlay');
-  const createOverlay = $('#createOverlay');
-  const adminPanel = $('#adminPanel');
-  const noticesContainer = $('#notices');
+const adminAccessBtn = $('#adminAccessBtn');
+const loginOverlay = $('#loginOverlay');
+const createOverlay = $('#createOverlay');
+const adminPanel = $('#adminPanel');
+const noticesContainer = $('#notices');
 
-  let currentAdmin = false;
+let currentAdmin = false;
 
-  adminAccessBtn.onclick = ()=> loginOverlay.classList.remove('hidden');
-  $('#closeLogin').onclick = ()=> loginOverlay.classList.add('hidden');
-  $('#createAccountBtn').onclick = ()=> {
+adminAccessBtn.onclick = ()=> loginOverlay.classList.remove('hidden');
+$('#closeLogin').onclick = ()=> loginOverlay.classList.add('hidden');
+$('#createAccountBtn').onclick = ()=> {
+  loginOverlay.classList.add('hidden');
+  createOverlay.classList.remove('hidden');
+};
+$('#closeCreate').onclick = ()=> {
+  createOverlay.classList.add('hidden');
+  loginOverlay.classList.remove('hidden');
+};
+
+// Login admin
+$('#loginAdm').onclick = async ()=>{
+  const matricula = $('#matricula').value.trim();
+  const senha = $('#senha').value;
+  if(!ADMINS.includes(matricula)){ alert("Matrícula não é admin"); return; }
+  const email = matricula + "@movebuss.local";
+  try {
+    await auth.signInWithEmailAndPassword(email, senha);
+    currentAdmin = true;
     loginOverlay.classList.add('hidden');
-    createOverlay.classList.remove('hidden');
-  };
-  $('#closeCreate').onclick = ()=> {
+    adminPanel.classList.remove('hidden');
+    renderNotices();
+  } catch(e){ alert("Erro login: "+e.message); }
+};
+
+// Criar conta admin
+$('#registerAdm').onclick = async ()=>{
+  const matricula = $('#newMatricula').value.trim();
+  const senha = $('#newSenha').value;
+  const conf = $('#confirmSenha').value;
+  if(!ADMINS.includes(matricula)){ alert("Matrícula não autorizada"); return; }
+  if(senha!==conf){ alert("Senhas não conferem"); return; }
+  const email = matricula + "@movebuss.local";
+  try {
+    const userCred = await auth.createUserWithEmailAndPassword(email, senha);
+    await db.collection('usuarios').doc(userCred.user.uid).set({
+      matricula,email,createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    alert("Conta criada com sucesso!");
     createOverlay.classList.add('hidden');
     loginOverlay.classList.remove('hidden');
-  };
+  } catch(e){ alert("Erro criação: "+e.message); }
+};
 
-  // Login admin
-  $('#loginAdm').onclick = async ()=>{
-    const matricula = $('#matricula').value.trim();
-    const senha = $('#senha').value;
-    if(!ADMINS.includes(matricula)){ alert("Matrícula não é admin"); return; }
-    const email = matricula + "@movebuss.local";
-    try {
-      await auth.signInWithEmailAndPassword(email, senha);
-      currentAdmin = true;
-      loginOverlay.classList.add('hidden');
-      adminPanel.classList.remove('hidden');
-      renderNotices();
-    } catch(e){ alert("Erro login: "+e.message); }
-  };
+$('#logoutAdm').onclick = async ()=>{
+  currentAdmin = false;
+  adminPanel.classList.add('hidden');
+  await auth.signOut();
+};
 
-  // Criar conta admin
-  $('#registerAdm').onclick = async ()=>{
-    const matricula = $('#newMatricula').value.trim();
-    const senha = $('#newSenha').value;
-    const conf = $('#confirmSenha').value;
-    if(!ADMINS.includes(matricula)){ alert("Matrícula não autorizada"); return; }
-    if(senha!==conf){ alert("Senhas não conferem"); return; }
-    const email = matricula + "@movebuss.local";
-    try {
-      const userCred = await auth.createUserWithEmailAndPassword(email, senha);
-      await db.collection('usuarios').doc(userCred.user.uid).set({
-        matricula,email,createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
-      alert("Conta criada com sucesso!");
-      createOverlay.classList.add('hidden');
-      loginOverlay.classList.remove('hidden');
-    } catch(e){ alert("Erro criação: "+e.message); }
-  };
-
-  $('#logoutAdm').onclick = async ()=>{
-    currentAdmin = false;
-    adminPanel.classList.add('hidden');
-    await auth.signOut();
-  };
-
-  $('#newList').onclick = async ()=>{
-    const title = prompt("Nome da nova lista:");
-    if(!title) return;
-    const doc = { title, createdAt: firebase.firestore.FieldValue.serverTimestamp(), items: [] };
-    await db.collection("avisos").add(doc);
-    renderNotices();
-  };
-
-  $('#downloadList').onclick = async ()=>{
-    const snap = await db.collection('avisos').get();
-    const all = {}; snap.forEach(s=> all[s.id] = s.data());
-    const data = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(all,null,2));
-    const a = document.createElement('a'); a.href = data; a.download = 'avisos_all.json'; a.click();
-  };
-
-  async function renderNotices(){
-    noticesContainer.innerHTML = '';
-    const snap = await db.collection('avisos').orderBy('createdAt','desc').get();
-    if(snap.empty){ noticesContainer.innerHTML='<div class="empty">Sem avisos</div>'; return; }
-    snap.forEach(doc=>{
-      const d = doc.data();
-      const box = document.createElement('div');
-      box.className='notice-box';
-      box.innerHTML = `<h4>${d.title||'Lista'}</h4>`;
-      const list = document.createElement('ul');
-      (d.items||[]).forEach((it,idx)=>{
-        const li = document.createElement('li');
-        li.textContent = it.text;
-        if(it.completed) li.classList.add('completed');
-        li.onclick = async ()=>{
-          if(!currentAdmin) return;
-          d.items[idx].completed = !d.items[idx].completed;
-          await db.collection('avisos').doc(doc.id).update({items:d.items});
-          renderNotices();
-        };
-        list.appendChild(li);
-      });
-      box.appendChild(list);
-      noticesContainer.appendChild(box);
-    });
-  }
+$('#newList').onclick = async ()=>{
+  const title = prompt("Nome da nova lista:");
+  if(!title) return;
+  const doc = { title, createdAt: firebase.firestore.FieldValue.serverTimestamp(), items: [] };
+  await db.collection("avisos").add(doc);
   renderNotices();
-  </script>
+};
+
+$('#downloadList').onclick = async ()=>{
+  const snap = await db.collection('avisos').get();
+  const all = {}; snap.forEach(s=> all[s.id] = s.data());
+  const data = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(all,null,2));
+  const a = document.createElement('a'); a.href = data; a.download = 'avisos_all.json'; a.click();
+};
+
+async function renderNotices(){
+  noticesContainer.innerHTML = '';
+  const snap = await db.collection('avisos').orderBy('createdAt','desc').get();
+  if(snap.empty){ noticesContainer.innerHTML='<div class="empty">Sem avisos</div>'; return; }
+  snap.forEach(doc=>{
+    const d = doc.data();
+    const box = document.createElement('div');
+    box.className='notice-box';
+    box.innerHTML = `<h4>${d.title||'Lista'}</h4>`;
+    const list = document.createElement('ul');
+    (d.items||[]).forEach((it,idx)=>{
+      const li = document.createElement('li');
+      li.textContent = it.text;
+      const cb = document.createElement('input');
+      cb.type='checkbox';
+      cb.checked = it.completed||false;
+      cb.disabled = !currentAdmin;
+      cb.style.marginLeft='8px';
+      cb.onchange = async ()=>{
+        if(!currentAdmin) return;
+        d.items[idx].completed = cb.checked;
+        await db.collection('avisos').doc(doc.id).update({items:d.items});
+        renderNotices();
+      };
+      if(it.completed) li.classList.add('completed');
+      li.appendChild(cb);
+      list.appendChild(li);
+    });
+    box.appendChild(list);
+    noticesContainer.appendChild(box);
+  });
+}
+renderNotices();
+</script>
 </body>
 </html>
