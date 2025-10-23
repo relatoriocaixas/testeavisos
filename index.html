@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Avisos Recebedoria</title>
   <link rel="stylesheet" href="styles.css" />
-  <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
-  <div id="floatingPanel" class="panel" data-pinned="true">
+  <button id="adminAccessBtn" class="admin-access">Admin</button>
+
+  <div id="floatingPanel" class="panel">
     <div class="panel-header">
-      <button id="adminBtn" class="admin-btn">Admin</button>
       <div class="title">
         <div>Avisos Recebedoria</div>
         <div id="todayDate" class="date"></div>
@@ -25,34 +25,31 @@
     <div id="content" class="panel-body">
       <div id="notices"></div>
     </div>
-    <div id="adminPanel" class="admin-panel hidden">
-      <h3>Painel Admin</h3>
-      <div class="form-row">
-        <input id="matricula" placeholder="Matrícula (ex: 6266)" />
-        <input id="senha" placeholder="Senha" type="password" />
-        <button id="loginAdm">Entrar</button>
-        <button id="logoutAdm" class="hidden">Sair</button>
-      </div>
-      <div id="adminActions" class="hidden">
-        <button id="newList">Criar nova lista de avisos</button>
-        <button id="downloadList">Download (JSON)</button>
-        <div id="manageLists"></div>
-      </div>
+  </div>
+
+  <!-- Tela de login admin -->
+  <div id="loginOverlay" class="login-overlay hidden">
+    <div class="login-box">
+      <h2>Login Admin</h2>
+      <input id="matricula" placeholder="Matrícula (ex: 6266)" />
+      <input id="senha" placeholder="Senha" type="password" />
+      <button id="loginAdm">Entrar</button>
+      <button id="closeLogin">Fechar</button>
     </div>
   </div>
 
-  <div id="blackScreen" class="black-screen hidden" aria-hidden="true">
-    <div class="black-inner">
-      <table id="blackTable">
-        <thead><tr><th>#</th><th>Aviso</th><th>Data</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <button id="closeBlack">Fechar</button>
+  <!-- Painel admin -->
+  <div id="adminPanel" class="admin-panel hidden">
+    <h3>Painel do Administrador</h3>
+    <div class="actions">
+      <button id="newList">Criar nova lista</button>
+      <button id="downloadList">Baixar todas</button>
+      <div id="manageLists"></div>
+      <button id="logoutAdm">Sair</button>
     </div>
   </div>
 
   <script>
-  // Firebase config (user-provided)
   const firebaseConfig = {
     apiKey: "AIzaSyC4mALGbBqJsJp2Xo5twMImq1hHaSV2HuM",
     authDomain: "caixas18-08.firebaseapp.com",
@@ -62,267 +59,83 @@
     appId: "1:41940261133:web:3d2254aafa02608c2df844",
     measurementId: "G-NF5D2RQYSE"
   };
-
-  // Admin matriculas
   const ADMINS = ["6266","70029","4144","5354"];
-
-  // Initialize Firebase
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
 
-  // Helpers
-  const $ = (sel)=>document.querySelector(sel);
-  const todayEl = document.getElementById('todayDate');
-  todayEl.textContent = new Date().toLocaleDateString('pt-BR');
+  const $ = (s)=>document.querySelector(s);
+  $('#todayDate').textContent = new Date().toLocaleDateString('pt-BR');
 
-  const floating = document.getElementById('floatingPanel');
-  const adminBtn = document.getElementById('adminBtn');
-  const adminPanel = document.getElementById('adminPanel');
-  const loginBtn = document.getElementById('loginAdm');
-  const logoutBtn = document.getElementById('logoutAdm');
-  const adminActions = document.getElementById('adminActions');
-  const newListBtn = document.getElementById('newList');
-  const manageLists = document.getElementById('manageLists');
-  const downloadListBtn = document.getElementById('downloadList');
-  const blackScreen = document.getElementById('blackScreen');
-  const closeBlack = document.getElementById('closeBlack');
-  const noticesContainer = document.getElementById('notices');
+  const adminAccessBtn = $('#adminAccessBtn');
+  const loginOverlay = $('#loginOverlay');
+  const adminPanel = $('#adminPanel');
+  const noticesContainer = $('#notices');
 
-  let currentUser = null;
+  adminAccessBtn.onclick = ()=> loginOverlay.classList.remove('hidden');
+  $('#closeLogin').onclick = ()=> loginOverlay.classList.add('hidden');
+
   let currentAdmin = false;
 
-  // Make panel draggable
-  (function(){let dragging=false,ox=0,oy=0;
-    const header = floating.querySelector('.panel-header');
-    header.addEventListener('pointerdown', (e)=>{dragging=true; ox=e.clientX - floating.offsetLeft; oy=e.clientY - floating.offsetTop; header.setPointerCapture(e.pointerId);} );
-    document.addEventListener('pointermove',(e)=>{ if(!dragging) return; floating.style.left=(e.clientX-ox)+'px'; floating.style.top=(e.clientY-oy)+'px'; });
-    document.addEventListener('pointerup',()=>dragging=false);
-  })();
-
-  // Pin toggle: keep on top
-  document.getElementById('togglePin').addEventListener('click', ()=>{
-    const pinned = floating.dataset.pinned === 'true';
-    floating.dataset.pinned = (!pinned).toString();
-    floating.style.pointerEvents = pinned ? 'auto' : 'auto';
-    floating.style.zIndex = pinned ? '1000' : '10000';
-  });
-
-  document.getElementById('minimize').addEventListener('click', ()=>{
-    document.getElementById('content').classList.toggle('hidden');
-  });
-
-  adminBtn.addEventListener('click', ()=>{ adminPanel.classList.toggle('hidden'); });
-
-  // Black screen for normal users
-  floating.addEventListener('dblclick', ()=>{ // double-click to open black view for normal users
-    blackScreen.classList.toggle('hidden');
-    renderBlackTable();
-  });
-
-  closeBlack.addEventListener('click', ()=> blackScreen.classList.add('hidden'));
-
-  // Login flow
-  loginBtn.addEventListener('click', async ()=>{
-    const matricula = document.getElementById('matricula').value.trim();
-    const senha = document.getElementById('senha').value;
-    if(!matricula){ alert('Digite a matrícula'); return; }
-    const email = matricula + '@movebuss.local';
-    try{
-      // Check usuarios collection for this email
-      const q = await db.collection('usuarios').where('email','==', email).limit(1).get();
-      if(q.empty){ alert('Usuário não encontrado no Firebase.'); return; }
-      // For demo: no password check in Firebase — we do a simple check against senha === 'admin' OR matricula in ADMINS
-      const isAdminMat = ADMINS.includes(matricula);
-      if(!isAdminMat){ alert('Matrícula não é admin.'); return; }
-      // Mark logged in admin
-      currentUser = { matricula, email };
-      currentAdmin = true;
-      adminActions.classList.remove('hidden');
-      logoutBtn.classList.remove('hidden');
-      loginBtn.classList.add('hidden');
-      document.getElementById('matricula').disabled = true;
-      document.getElementById('senha').disabled = true;
-      loadLists();
-      alert('Login admin efetuado.');
-    }catch(err){ console.error(err); alert('Erro ao buscar usuário: '+err.message); }
-  });
-
-  logoutBtn.addEventListener('click', ()=>{
-    currentUser = null; currentAdmin = false;
-    adminActions.classList.add('hidden');
-    logoutBtn.classList.add('hidden');
-    loginBtn.classList.remove('hidden');
-    document.getElementById('matricula').disabled = false;
-    document.getElementById('senha').disabled = false;
-  });
-
-  // Load notices (visible to all)
-  async function renderNotices(){
-    noticesContainer.innerHTML='';
-    try{
-      const snap = await db.collection('avisos').orderBy('createdAt','desc').get();
-      if(snap.empty){ noticesContainer.innerHTML = '<div class="empty">Sem avisos</div>'; return; }
-      snap.forEach(doc=>{
-        const data = doc.data();
-        const id = doc.id;
-        const box = document.createElement('div');
-        box.className = 'notice-box';
-        const hdr = document.createElement('div');
-        hdr.className = 'notice-header';
-        hdr.innerHTML = `<div class="notice-title">${data.title || 'Lista'}</div><div class="notice-date">${new Date(data.createdAt?.toMillis ? data.createdAt.toMillis() : Date.now()).toLocaleDateString('pt-BR')}</div>`;
-        box.appendChild(hdr);
-
-        const list = document.createElement('ul');
-        (data.items || []).forEach((it, idx)=>{
-          const li = document.createElement('li');
-          li.className = 'notice-item' + (it.completed ? ' completed' : '');
-          li.dataset.docId = id;
-          li.dataset.idx = idx;
-          li.innerHTML = `<span class="num">${idx+1}</span> <span class="txt">${it.text}</span> <span class="check">${it.completed ? '✅' : ''}</span>`;
-          // Click behavior
-          li.addEventListener('click', async (e)=>{
-            if(!currentAdmin) { // normal users: toggle visual check only (transparent -> check)
-              // toggle visual only for user
-              if(li.classList.contains('completed')) { li.classList.remove('completed'); li.querySelector('.check').textContent = ''; }
-              else { li.classList.add('completed'); li.querySelector('.check').textContent = '✅'; }
-              return;
-            }
-            // Admin toggles and updates firestore
-            const docRef = db.collection('avisos').doc(id);
-            const snapshot = await docRef.get();
-            if(!snapshot.exists) return;
-            const d = snapshot.data();
-            const items = d.items || [];
-            items[idx].completed = !items[idx].completed;
-            await docRef.update({ items });
-            renderNotices();
-          });
-          list.appendChild(li);
-        });
-        // Admin edit controls
-        if(currentAdmin){
-          const controls = document.createElement('div');
-          controls.className = 'notice-controls';
-          const editBtn = document.createElement('button');
-          editBtn.textContent = 'Editar';
-          editBtn.addEventListener('click', ()=> openEditor(id));
-          const delBtn = document.createElement('button');
-          delBtn.textContent = 'Excluir';
-          delBtn.addEventListener('click', async ()=>{ if(confirm('Excluir lista?')){ await db.collection('avisos').doc(id).delete(); renderNotices(); } });
-          controls.appendChild(editBtn); controls.appendChild(delBtn);
-          box.appendChild(controls);
-        }
-
-        box.appendChild(list);
-        noticesContainer.appendChild(box);
-      });
-    }catch(err){ console.error(err); noticesContainer.innerHTML = '<div class="error">Erro ao carregar avisos</div>'; }
-  }
-
-  // Editor for admin
-  function openEditor(docId){
-    const modal = document.createElement('div');
-    modal.className = 'editorModal';
-    modal.innerHTML = `<div class="editorContent">
-      <h3>Editar lista</h3>
-      <div id="editorBody"></div>
-      <div class="editorActions">
-        <button id="saveEdit">Salvar</button>
-        <button id="cancelEdit">Cancelar</button>
-      </div>
-    </div>`;
-    document.body.appendChild(modal);
-    const body = modal.querySelector('#editorBody');
-    // load doc
-    db.collection('avisos').doc(docId).get().then(snap=>{
-      const d = snap.data();
-      const items = d.items || [];
-      body.innerHTML = `<input id="editTitle" value="${(d.title||'').replace(/"/g,'&quot;')}"/><div id="itemsWrap"></div><button id="addItem">Adicionar item</button>`;
-      const itemsWrap = body.querySelector('#itemsWrap');
-      function renderItems(){ itemsWrap.innerHTML=''; items.forEach((it,i)=>{
-        const row = document.createElement('div');
-        row.className = 'editRow';
-        row.innerHTML = `<input class="itm" value="${it.text.replace(/"/g,'&quot;')}" /> <label>Completo <input type="checkbox" class="itmCompleted" ${it.completed?'checked':''}></label> <button class="rm">Remover</button>`;
-        row.querySelector('.rm').addEventListener('click', ()=>{ items.splice(i,1); renderItems(); });
-        itemsWrap.appendChild(row);
-      }); }
-      renderItems();
-      body.querySelector('#addItem').addEventListener('click', ()=>{ items.push({text:'Novo aviso',completed:false}); renderItems(); });
-      modal.querySelector('#saveEdit').addEventListener('click', async ()=>{
-        const title = modal.querySelector('#editTitle').value;
-        const newItems = Array.from(modal.querySelectorAll('.itm')).map((el,i)=>({ text: el.value, completed: !!modal.querySelectorAll('.itmCompleted')[i].checked }));
-        await db.collection('avisos').doc(docId).update({ title, items: newItems });
-        document.body.removeChild(modal);
-        renderNotices();
-      });
-      modal.querySelector('#cancelEdit').addEventListener('click', ()=>{ document.body.removeChild(modal); });
-    });
-  }
-
-  // Create a new list
-  newListBtn.addEventListener('click', async ()=>{
-    const title = prompt('Nome da nova lista:', 'Lista de avisos');
-    if(!title) return;
-    const doc = { title, createdAt: firebase.firestore.FieldValue.serverTimestamp(), items: [{text:'Novo aviso 1',completed:false}] };
-    await db.collection('avisos').add(doc);
-    loadLists();
+  $('#loginAdm').onclick = async ()=>{
+    const matricula = $('#matricula').value.trim();
+    const senha = $('#senha').value;
+    const email = matricula + "@movebuss.local";
+    if(!ADMINS.includes(matricula)){ alert("Matrícula não é admin"); return; }
+    const q = await db.collection("usuarios").where("email","==",email).limit(1).get();
+    if(q.empty){ alert("Usuário não encontrado"); return; }
+    currentAdmin = true;
+    loginOverlay.classList.add('hidden');
+    adminPanel.classList.remove('hidden');
     renderNotices();
-  });
+  };
 
-  // Load lists for admin manage
-  async function loadLists(){
-    manageLists.innerHTML = '';
-    const snap = await db.collection('avisos').orderBy('createdAt','desc').get();
-    snap.forEach(doc=>{
-      const d = doc.data(); const id = doc.id;
-      const row = document.createElement('div');
-      row.className = 'listRow';
-      row.innerHTML = `<strong>${d.title||'Lista'}</strong> <button data-id="${id}" class="editBtn">Abrir</button> <button data-id="${id}" class="dlBtn">Download</button>`;
-      row.querySelector('.editBtn').addEventListener('click', ()=> openEditor(id));
-      row.querySelector('.dlBtn').addEventListener('click', async ()=>{
-        const snapshot = await db.collection('avisos').doc(id).get();
-        const data = snapshot.data();
-        downloadJSON(data, (d.title||'lista') + '.json');
-      });
-      manageLists.appendChild(row);
-    });
-  }
+  $('#logoutAdm').onclick = ()=>{
+    currentAdmin = false;
+    adminPanel.classList.add('hidden');
+  };
 
-  // Download all lists as JSON
-  downloadListBtn.addEventListener('click', async ()=>{
+  $('#newList').onclick = async ()=>{
+    const title = prompt("Nome da nova lista:");
+    if(!title) return;
+    const doc = { title, createdAt: firebase.firestore.FieldValue.serverTimestamp(), items: [] };
+    await db.collection("avisos").add(doc);
+    renderNotices();
+  };
+
+  $('#downloadList').onclick = async ()=>{
     const snap = await db.collection('avisos').get();
-    const all = {};
-    snap.forEach(s=> all[s.id] = s.data());
-    downloadJSON(all, 'avisos_all.json');
-  });
+    const all = {}; snap.forEach(s=> all[s.id] = s.data());
+    const data = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(all,null,2));
+    const a = document.createElement('a'); a.href = data; a.download = 'avisos_all.json'; a.click();
+  };
 
-  function downloadJSON(obj, filename){
-    const data = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(obj, null, 2));
-    const a = document.createElement('a'); a.href = data; a.download = filename; a.click();
-  }
-
-  // Render black table
-  async function renderBlackTable(){
-    const tbody = document.querySelector('#blackTable tbody');
-    tbody.innerHTML = '';
+  async function renderNotices(){
+    noticesContainer.innerHTML = '';
     const snap = await db.collection('avisos').orderBy('createdAt','desc').get();
-    let idx = 1;
+    if(snap.empty){ noticesContainer.innerHTML='<div class="empty">Sem avisos</div>'; return; }
     snap.forEach(doc=>{
       const d = doc.data();
-      (d.items||[]).forEach(item=>{
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${idx++}</td><td>${item.text}</td><td>${new Date(d.createdAt?.toMillis ? d.createdAt.toMillis() : Date.now()).toLocaleDateString('pt-BR')}</td>`;
-        tbody.appendChild(tr);
+      const box = document.createElement('div');
+      box.className='notice-box';
+      box.innerHTML = `<h4>${d.title||'Lista'}</h4>`;
+      const list = document.createElement('ul');
+      (d.items||[]).forEach((it,idx)=>{
+        const li = document.createElement('li');
+        li.textContent = it.text;
+        if(it.completed) li.classList.add('completed');
+        li.onclick = async ()=>{
+          if(!currentAdmin) return;
+          d.items[idx].completed = !d.items[idx].completed;
+          await db.collection('avisos').doc(doc.id).update({items:d.items});
+          renderNotices();
+        };
+        list.appendChild(li);
       });
+      box.appendChild(list);
+      noticesContainer.appendChild(box);
     });
   }
-
-  // Initial load
   renderNotices();
-
-  // Refresh notices periodically
-  setInterval(renderNotices, 30_000);
   </script>
-  <script src="app.js"></script>
 </body>
 </html>
